@@ -1,4 +1,4 @@
-import { ProvenanceSchema, EpistemicStatusEnum } from '../../src/verification/provenance';
+import { ProvenanceSchema, EpistemicStatusEnum, validateExtendedProvenance } from '../../src/verification/provenance';
 
 describe('ProvenanceSchema', () => {
   it('should parse valid provenance without optionals', () => {
@@ -35,5 +35,85 @@ describe('ProvenanceSchema', () => {
       epistemicStatus: EpistemicStatusEnum.ASSUMED
     };
     expect(ProvenanceSchema.safeParse(invalid).success).toBe(false);
+  });
+});
+
+describe('ExtendedProvenanceSchema', () => {
+  it('should parse valid extended provenance with empty arrays', () => {
+    const valid = {
+      id: 'prov-ext-1',
+      sourceType: 'SENSOR',
+      reference: 'S-1',
+      recordedAt: '2026-09-30T15:00:00.000Z',
+      epistemicStatus: EpistemicStatusEnum.OBSERVED,
+      attestations: [],
+      custodyChains: [],
+      provenanceRefs: ['ref-1']
+    };
+    const result = validateExtendedProvenance(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it('should parse valid extended provenance with full fields', () => {
+    const valid = {
+      id: 'prov-ext-1',
+      sourceType: 'SENSOR',
+      reference: 'S-1',
+      recordedAt: '2026-09-30T15:00:00.000Z',
+      epistemicStatus: EpistemicStatusEnum.OBSERVED,
+      attestations: [{
+        attestationId: 'att-1',
+        attestorId: 'agent-1',
+        attestedAt: '2026-09-30T15:05:00.000Z'
+      }],
+      custodyChains: [{
+        chainId: 'chain-1',
+        transfers: [{
+          handlerId: 'handler-1',
+          transferredAt: '2026-09-30T15:10:00.000Z',
+          action: 'RECEIVED'
+        }]
+      }],
+      provenanceRefs: ['ref-1']
+    };
+    const result = validateExtendedProvenance(valid);
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject invalid timestamps in attestation', () => {
+    const invalid = {
+      id: 'prov-ext-1',
+      sourceType: 'SENSOR',
+      reference: 'S-1',
+      recordedAt: '2026-09-30T15:00:00.000Z',
+      epistemicStatus: EpistemicStatusEnum.OBSERVED,
+      attestations: [{
+        attestationId: 'att-1',
+        attestorId: 'agent-1',
+        attestedAt: 'invalid-date'
+      }],
+      custodyChains: [],
+      provenanceRefs: ['ref-1']
+    };
+    const result = validateExtendedProvenance(invalid);
+    expect(result.success).toBe(false);
+  });
+  
+  it('should reject empty arrays in custody transfer', () => {
+    const invalid = {
+      id: 'prov-ext-1',
+      sourceType: 'SENSOR',
+      reference: 'S-1',
+      recordedAt: '2026-09-30T15:00:00.000Z',
+      epistemicStatus: EpistemicStatusEnum.OBSERVED,
+      attestations: [],
+      custodyChains: [{
+        chainId: 'chain-1',
+        transfers: []
+      }],
+      provenanceRefs: ['ref-1']
+    };
+    const result = validateExtendedProvenance(invalid);
+    expect(result.success).toBe(false);
   });
 });
