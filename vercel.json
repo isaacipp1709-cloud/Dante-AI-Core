@@ -1,0 +1,14 @@
+{
+  "framework": "nextjs",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "memory": 128,
+      "maxDuration": 10
+    }
+  },
+  "env": {
+    "NODE_ENV": "production"
+  }
+}
