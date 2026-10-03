@@ -1,7 +1,6 @@
-// src/app/api/chat/route.ts
-
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { DanteOrchestrator } from '../../../orchestrator';
 import { createConversation, saveMessage } from '../../../lib/database';
 
 const ChatMessageSchema = z.object({
@@ -14,6 +13,26 @@ const ChatRequestSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // --- Auth: Bearer token (RFC 6750) ---
+  const authHeader = request.headers.get('authorization');
+  const expectedToken = process.env.DANTE_CORE_TOKEN;
+
+  if (!expectedToken) {
+    console.error('[Auth] DANTE_CORE_TOKEN not configured on server');
+    return NextResponse.json(
+      { error: 'SERVICE_UNAVAILABLE', message: 'Auth not configured' },
+      { status: 503 }
+    );
+  }
+
+  if (!authHeader || authHeader !== `Bearer ${expectedToken}`) {
+    return NextResponse.json(
+      { error: 'UNAUTHORIZED', message: 'Token inválido o ausente' },
+      { status: 401 }
+    );
+  }
+  // --- End Auth ---
+
   try {
     const body = await request.json();
     const result = ChatRequestSchema.safeParse(body);
@@ -25,40 +44,67 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Crear conversación
-    const conversation = (await createConversation('Chat ' + new Date().toISOString()))[0];
-    
-    // Guardar mensajes del usuario
-    for (const msg of result.data.messages) {
-      await saveMessage(conversation.id, msg.role, msg.content);
-    }
+    // Extract query for orchestrator
+    const messages = result.data.messages;
+    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+    const query = lastUserMessage ? lastUserMessage.content : "";
 
-    // Mock provider - respuesta simulada (por ahora, hasta integrar el orchestrator real)
-    const mockResponse = {
-      id: `mock-${Date.now()}`,
+    // Build GeneralContext from HTTP headers (no dummy financials)
+    const generalContext = {
+      timezone: request.headers.get('x-user-timezone') || 'UTC',
+      locale: request.headers.get('x-user-locale') || 'es-CL',
+      userId: request.headers.get('x-user-id') || undefined,
+    };
+    
+    const externalConversationId = request.headers.get('x-conversation-id') || `local-${Date.now()}`;
+    const requestId = `req-${Date.now()}`;
+
+    // Initialize Dante Orchestrator
+    const orchestrator = new DanteOrchestrator();
+
+    const orchestratorResult = await orchestrator.process({
+      query,
+      financialContext: generalContext,
+      // Pass the previous context so the orchestrator has memory
+      chatHistory: messages.slice(0, -1)
+    });
+
+    let assistantContent = `[Dante-AI-Core] Status: ${orchestratorResult.status} | Acción: ${orchestratorResult.action}\n`;
+    assistantContent += `Payload Result: ${JSON.stringify(orchestratorResult.payload)}`;
+
+    const coreResponse = {
+      id: requestId,
       object: 'chat.completion',
       created: Date.now(),
-      model: 'mock-dante-provider',
+      model: 'dante-ai-core-local',
       choices: [{
         index: 0,
         message: {
           role: 'assistant',
-          content: 'Esta es una respuesta simulada de Dante-AI-Core. Operando en modo offline y $0 cost. Próximamente: conexión con orchestrator real.'
+          content: assistantContent
         },
         finish_reason: 'stop'
       }],
-      usage: {
-        prompt_tokens: 10,
-        completion_tokens: 25,
-        total_tokens: 35
-      },
-      conversationId: conversation.id
+      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      conversationId: externalConversationId
     };
 
-    // Guardar respuesta de Dante
-    await saveMessage(conversation.id, 'assistant', mockResponse.choices[0].message.content);
+    if (process.env.USE_DATABASE === 'true') {
+      try {
+        const convRows = await createConversation(externalConversationId);
+        const internalId = convRows[0].id; // UUID
 
-    return NextResponse.json(mockResponse, { status: 200 });
+        if (lastUserMessage) {
+          await saveMessage(internalId, 'user', lastUserMessage.content, requestId);
+        }
+        await saveMessage(internalId, 'assistant', coreResponse.choices[0].message.content, requestId);
+      } catch (error) {
+        // Loggear error, no bloquear respuesta
+        console.error('Persistencia falló:', error);
+      }
+    }
+
+    return NextResponse.json(coreResponse, { status: 200 });
   } catch (error) {
     console.error('Chat error:', error);
     return NextResponse.json(

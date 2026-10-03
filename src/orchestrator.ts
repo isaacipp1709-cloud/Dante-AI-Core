@@ -3,6 +3,7 @@ import { FinancialMath } from './math/financial';
 import { MarkdownLoader } from './loaders/markdownLoader';
 import { defaultTaxes, TaxConfig } from './config/taxes';
 import { DanteBaseError, ConfigurationError, GuardrailViolationError } from './errors/DanteErrors';
+import { DanteContext, isFinancialContext } from './verification/context';
 
 const FinancialContextSchema = z.object({
   cajaDisponibleCLP: z.union([z.number().int(), z.bigint()]),
@@ -18,8 +19,9 @@ export type FinancialContext = z.infer<typeof FinancialContextSchema>;
 export interface OrchestratorInput {
   query: string;
   targetNeuronId?: string; // Corresponde al path del archivo markdown
-  financialContext: FinancialContext;
+  financialContext: DanteContext;
   taxConfigOverride?: Partial<TaxConfig>;
+  chatHistory?: { role: string; content: string }[];
 }
 
 export interface OrchestratorOutput {
@@ -40,34 +42,38 @@ export class DanteOrchestrator {
 
   public async process(input: OrchestratorInput): Promise<OrchestratorOutput> {
     try {
-      // 1. Validar Contexto Financiero (Schema)
-      const parsedContext = FinancialContextSchema.parse(input.financialContext);
+      // 1. Validar Contexto Financiero (Schema) — solo si el contexto es financiero
+      const payload: Record<string, unknown> = {
+        financialResults: {},
+        historyLength: input.chatHistory ? input.chatHistory.length : 0
+      };
 
-      // 2. Aduana Atenea Básica (Fase 1: No Regex frágil, pero validación de estructura y rechazos hardcodeados como demo de error)
+      if (isFinancialContext(input.financialContext)) {
+        const parsedContext = FinancialContextSchema.parse(input.financialContext);
+
+        // Reserva Pascal
+        (payload.financialResults as Record<string, unknown>).pascal = FinancialMath.checkPascalReserve(
+          parsedContext.sueldosLiquidosMensualesCLP,
+          parsedContext.cajaDisponibleCLP
+        );
+
+        // IVA
+        if (parsedContext.ventasNetasCLP !== undefined && parsedContext.comprasNetasCLP !== undefined) {
+          (payload.financialResults as Record<string, unknown>).iva = FinancialMath.calculateIVA(
+            parsedContext.ventasNetasCLP,
+            parsedContext.comprasNetasCLP,
+            parsedContext.remanenteAnteriorCLP,
+            { ...this.taxConfig, ...input.taxConfigOverride }
+          );
+        }
+      }
+
+      // 2. Aduana Atenea Básica
       if (input.query.toLowerCase().includes('vacas vuelan')) {
           throw new GuardrailViolationError("Fallo intencional por pruebas (vacas vuelan eliminado de preFlightCheck JS pero usado en test para fallos explícitos).");
       }
 
-      // 3. Ejecutar Cálculos Financieros (Columna Vertebral)
-      const payload: any = { financialResults: {} };
-
-      // Reserva Pascal
-      payload.financialResults.pascal = FinancialMath.checkPascalReserve(
-        parsedContext.sueldosLiquidosMensualesCLP, 
-        parsedContext.cajaDisponibleCLP
-      );
-
-      // IVA
-      if (parsedContext.ventasNetasCLP !== undefined && parsedContext.comprasNetasCLP !== undefined) {
-        payload.financialResults.iva = FinancialMath.calculateIVA(
-          parsedContext.ventasNetasCLP,
-          parsedContext.comprasNetasCLP,
-          parsedContext.remanenteAnteriorCLP,
-          { ...this.taxConfig, ...input.taxConfigOverride }
-        );
-      }
-
-      // 4. Cargar contexto documental si se pide
+      // 3. Cargar contexto documental si se pide
       let contextString: string | undefined = undefined;
       if (input.targetNeuronId) {
         contextString = await this.markdownLoader.loadMarkdown(input.targetNeuronId);
