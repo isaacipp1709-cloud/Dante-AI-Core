@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createConversation, saveMessage } from '../../lib/database';
+import { createConversation, saveMessage } from '../../../lib/database';
 
 const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Crear conversación
-    const conversation = await createConversation('Chat ' + new Date().toISOString());
+    const conversation = (await createConversation('Chat ' + new Date().toISOString()))[0];
     
     // Guardar mensajes del usuario
     for (const msg of result.data.messages) {
