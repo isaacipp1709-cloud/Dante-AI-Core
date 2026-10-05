@@ -59,33 +59,53 @@ export async function POST(request: NextRequest) {
     const externalConversationId = request.headers.get('x-conversation-id') || `local-${Date.now()}`;
     const requestId = `req-${Date.now()}`;
 
-    // Initialize Dante Orchestrator
     const orchestrator = new DanteOrchestrator();
 
     const orchestratorResult = await orchestrator.process({
       query,
       financialContext: generalContext,
-      // Pass the previous context so the orchestrator has memory
       chatHistory: messages.slice(0, -1)
     });
 
-    let assistantContent = `[Dante-AI-Core] Status: ${orchestratorResult.status} | Acción: ${orchestratorResult.action}\n`;
-    assistantContent += `Payload Result: ${JSON.stringify(orchestratorResult.payload)}`;
+    let finalResponseContent = '';
+    let finalProviderId = 'core-system';
+    let tokenUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+
+    if (orchestratorResult.status === 'SUCCESS') {
+      // 1. Context and guardrails OK. Pass to Provider Router
+      const { providerRouter } = await import('../../../orchestrator/provider-router');
+      
+      // Inject orchestrator context into prompt if needed (e.g. financial results)
+      const enrichedPrompt = orchestratorResult.payload.financialResults 
+        ? `${query}\n\n[System Context: Financial calculations: ${JSON.stringify(orchestratorResult.payload.financialResults)}]`
+        : query;
+
+      const { response, providerId } = await providerRouter.executeWithFallback(enrichedPrompt, messages.slice(0, -1));
+      
+      finalResponseContent = response.content;
+      finalProviderId = providerId;
+      if (response.usage) tokenUsage = response.usage;
+
+    } else {
+      // 2. Guardrail rejected or Math error. Core intercepts.
+      finalResponseContent = `[Dante Core Intercept] Acción: ${orchestratorResult.action}. Detalle: ${JSON.stringify(orchestratorResult.payload)}`;
+      finalProviderId = 'core-system';
+    }
 
     const coreResponse = {
       id: requestId,
       object: 'chat.completion',
       created: Date.now(),
-      model: 'dante-ai-core-local',
+      model: finalProviderId,
       choices: [{
         index: 0,
         message: {
           role: 'assistant',
-          content: assistantContent
+          content: finalResponseContent
         },
         finish_reason: 'stop'
       }],
-      usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      usage: tokenUsage,
       conversationId: externalConversationId
     };
 
