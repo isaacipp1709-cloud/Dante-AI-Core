@@ -20,7 +20,10 @@ export async function DELETE(
 
   try {
     await resolved.context.service.deleteForOwner(credentialId, resolved.context.ownerId);
-    return NextResponse.json({ deleted: true, credentialId }, { status: 200 });
+    return NextResponse.json(
+      { deleted: true, credentialId, storage: resolved.context.service.storage },
+      { status: 200 },
+    );
   } catch (error) {
     const mapped = mapCredentialError(error);
     return NextResponse.json(
