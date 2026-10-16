@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DanteOrchestrator } from '../../../orchestrator';
 import { createConversation, saveMessage } from '../../../lib/database';
+import { mapCredentialError, resolveByokContext } from '../../../lib/byok-context';
+import { defaultByokExecutor } from '../../../orchestrator/credentials/byok-executor';
+import { ProviderNotSupportedError } from '../../../orchestrator/credentials/credential-service';
 
 const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant', 'system']),
@@ -9,7 +12,11 @@ const ChatMessageSchema = z.object({
 });
 
 const ChatRequestSchema = z.object({
-  messages: z.array(ChatMessageSchema)
+  messages: z.array(ChatMessageSchema),
+  /** BYOK: referencia a la credencial del propietario (nunca la clave). */
+  credentialId: z.string().min(1).max(128).optional(),
+  providerId: z.string().min(1).max(64).optional(),
+  model: z.string().min(1).max(120).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -58,6 +65,90 @@ export async function POST(request: NextRequest) {
     
     const externalConversationId = request.headers.get('x-conversation-id') || `local-${Date.now()}`;
     const requestId = `req-${Date.now()}`;
+
+    // --- BYOK: credencial del propietario autenticado ---
+    if (result.data.credentialId) {
+      const byokContext = resolveByokContext(request);
+      if (!byokContext.ok) {
+        return NextResponse.json(byokContext.body, { status: byokContext.status });
+      }
+
+      let credential: { providerId: string; apiKey: string };
+      try {
+        credential = await byokContext.context.service.resolveForOwner(
+          result.data.credentialId,
+          byokContext.context.ownerId,
+        );
+      } catch (error) {
+        const mapped = mapCredentialError(error);
+        return NextResponse.json(
+          { error: { code: mapped.code, message: mapped.message } },
+          { status: mapped.status },
+        );
+      }
+
+      const byokPrompt = messages.filter((m) => m.role === 'user').pop()?.content ?? '';
+
+      try {
+        const execution = await defaultByokExecutor({
+          providerId: credential.providerId,
+          apiKey: credential.apiKey,
+          prompt: byokPrompt,
+          history: messages.slice(0, -1),
+          model: result.data.model,
+        });
+
+        return NextResponse.json(
+          {
+            id: requestId,
+            object: 'chat.completion',
+            created: Date.now(),
+            model: execution.model,
+            choices: [{
+              index: 0,
+              message: { role: 'assistant', content: execution.content },
+              finish_reason: 'stop',
+            }],
+            usage: execution.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            requestedProvider: credential.providerId,
+            credentialUsed: true,
+            conversationId: externalConversationId,
+          },
+          { status: 200 },
+        );
+      } catch (error) {
+        if (error instanceof ProviderNotSupportedError) {
+          return NextResponse.json(
+            { error: { code: 'PROVIDER_NOT_SUPPORTED', message: 'Proveedor no habilitado para BYOK.' } },
+            { status: 400 },
+          );
+        }
+        const providerCode = (error as { code?: string }).code;
+        if (providerCode === 'AUTH_ERROR') {
+          return NextResponse.json(
+            { error: { code: 'PROVIDER_UNAUTHORIZED', message: 'El proveedor rechazo la credencial guardada.' } },
+            { status: 401 },
+          );
+        }
+        if (providerCode === 'QUOTA_EXCEEDED') {
+          return NextResponse.json(
+            { error: { code: 'PROVIDER_RATE_LIMITED', message: 'Limite de uso alcanzado en el proveedor.' } },
+            { status: 429 },
+          );
+        }
+        if (providerCode === 'TIMEOUT') {
+          return NextResponse.json(
+            { error: { code: 'PROVIDER_TIMEOUT', message: 'El proveedor no respondio a tiempo.' } },
+            { status: 504 },
+          );
+        }
+        return NextResponse.json(
+          { error: { code: 'PROVIDER_ERROR', message: 'El proveedor devolvio un error.' } },
+          { status: 502 },
+        );
+      }
+    }
+
 
     const orchestrator = new DanteOrchestrator();
 
