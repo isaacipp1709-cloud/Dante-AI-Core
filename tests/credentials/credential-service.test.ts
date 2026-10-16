@@ -17,7 +17,7 @@ import {
   getCredentialService,
 } from '../../src/orchestrator/credentials/credential-service';
 import { verifyOwnerAssertion } from '../../src/lib/owner-assertion';
-import { mapCredentialError } from '../../src/lib/byok-context';
+import { isAdminOwner, mapCredentialError } from '../../src/lib/byok-context';
 
 const MASTER = 'test-master-secret-with-enough-length-0123456789';
 const SECRET = 'sk-core-byok-value-3d9f1a';
@@ -176,11 +176,12 @@ describe('Almacenamiento durable y aislamiento por propietario', () => {
     });
     expect(withDb.storage).toBe('durable');
 
-    // Con DATABASE_URL pero sin ejecutor SQL no se inventa persistencia
+    // Con DATABASE_URL configurada NO hay degradado silencioso a memoria:
+    // el store es durable y un fallo de base se reporta como indisponible.
     const withoutRunner = getCredentialService({
       env: { CREDENTIAL_MASTER_SECRET: MASTER, DATABASE_URL: 'postgres://x' },
     });
-    expect(withoutRunner.storage).toBe('temporary');
+    expect(withoutRunner.storage).toBe('durable');
   });
 
   it('el store Neon filtra siempre por owner_id y sanitiza errores', async () => {
@@ -250,6 +251,26 @@ describe('Identidad del usuario final entre La Casa y el Core', () => {
     const otherPayload = Buffer.from(JSON.stringify({ ownerId: 'user-b', iat: 0, exp: Date.now() + 10000 })).toString('base64url');
     const swapped = verifyOwnerAssertion({ assertion: `${otherPayload}.${tampered[1]}`, secret: SECRET_TOKEN });
     expect(swapped.ok).toBe(false);
+  });
+});
+
+describe('Guardas de configuracion y autorizacion', () => {
+  it('con DATABASE_URL configurada NUNCA se degrada a memoria', () => {
+    const svc = getCredentialService({
+      env: { CREDENTIAL_MASTER_SECRET: MASTER, DATABASE_URL: 'postgres://user:pass@db.internal:5432/neon' },
+    });
+    expect(svc.storage).toBe('durable');
+
+    const withoutDb = getCredentialService({ env: { CREDENTIAL_MASTER_SECRET: MASTER } });
+    expect(withoutDb.storage).toBe('temporary');
+  });
+
+  it('los ajustes globales exigen autorizacion administrativa (deny by default)', () => {
+    expect(isAdminOwner('user-a', {})).toBe(false);
+    expect(isAdminOwner('user-a', { DANTE_ADMIN_OWNER_IDS: '' })).toBe(false);
+    expect(isAdminOwner('user-a', { DANTE_ADMIN_OWNER_IDS: 'user-b, user-c' })).toBe(false);
+    expect(isAdminOwner('user-b', { DANTE_ADMIN_OWNER_IDS: 'user-b, user-c' })).toBe(true);
+    expect(isAdminOwner('user-c', { DANTE_ADMIN_OWNER_IDS: ' user-b , user-c ' })).toBe(true);
   });
 });
 
