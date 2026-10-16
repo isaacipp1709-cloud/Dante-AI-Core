@@ -17,6 +17,7 @@ export class ProviderRouter {
   private providers: Map<string, AIProvider> = new Map();
   private rotationHistory: RotationLog[] = [];
   private disabledProviders: Set<string> = new Set(); // For AUTH_ERRORs
+  private adminDisabledProviders: Set<string> = new Set(); // Toggle del panel de conexiones
   
   // Rule: Priority order
   private priorityOrder = ['gemini', 'huggingface', 'ollama'];
@@ -38,7 +39,7 @@ export class ProviderRouter {
       id: p.id,
       name: p.name,
       category: p.category,
-      is_active: p.isActive() && !this.disabledProviders.has(p.id)
+      is_active: p.isActive() && !this.disabledProviders.has(p.id) && !this.adminDisabledProviders.has(p.id)
     }));
   }
 
@@ -65,9 +66,34 @@ export class ProviderRouter {
     return this.providers.get(preferredId) || this.providers.get('mock')!;
   }
 
+  /** Ids de proveedores registrados (para el panel de conexiones). */
+  public getProviderIds(): string[] {
+    return Array.from(this.providers.keys());
+  }
+
+  public hasProvider(id: string): boolean {
+    return this.providers.has(id);
+  }
+
+  /**
+   * Activa o desactiva un proveedor desde el panel de conexiones.
+   * NO toca credenciales: solo impide su uso mientras este desactivado.
+   */
+  public setProviderEnabled(id: string, enabled: boolean): void {
+    if (enabled) {
+      this.adminDisabledProviders.delete(id);
+    } else {
+      this.adminDisabledProviders.add(id);
+    }
+  }
+
+  public isProviderEnabled(id: string): boolean {
+    return !this.adminDisabledProviders.has(id);
+  }
+
   private canUseProvider(id: string): boolean {
     const p = this.providers.get(id);
-    return !!p && p.isActive() && !this.disabledProviders.has(id);
+    return !!p && p.isActive() && !this.disabledProviders.has(id) && !this.adminDisabledProviders.has(id);
   }
 
   private getNextAvailableProvider(excludeId?: string): string {
