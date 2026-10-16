@@ -5,12 +5,12 @@ export const dynamic = 'force-dynamic';
 
 export async function DELETE(
   request: Request,
-  context: { params: { credentialId: string } },
+  context: { params: Promise<{ credentialId: string }> },
 ) {
   const resolved = resolveByokContext(request);
   if (!resolved.ok) return NextResponse.json(resolved.body, { status: resolved.status });
 
-  const credentialId = context.params.credentialId;
+  const { credentialId } = await context.params;
   if (typeof credentialId !== 'string' || credentialId.trim().length === 0) {
     return NextResponse.json(
       { error: { code: 'INVALID_REQUEST', message: 'credentialId es requerido.' } },
