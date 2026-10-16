@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { query } from '../../lib/database';
 import {
   CredentialConfigurationError,
   CredentialCrypto,
@@ -124,6 +125,12 @@ function toMetadata(record: {
   };
 }
 
+/** Runner SQL real del Core (pg sobre DATABASE_URL). */
+async function defaultSqlRunner(text: string, params?: unknown[]) {
+  const result = await query(text, params as unknown[] | undefined);
+  return { rows: result.rows as unknown[], rowCount: result.rowCount };
+}
+
 const globalState = globalThis as unknown as {
   __danteCoreCredentialMemoryStore?: InMemoryCredentialStore;
 };
@@ -148,10 +155,13 @@ export function getCredentialService(options: GetCredentialServiceOptions = {}):
   const env = options.env ?? process.env;
   const masterSecret = env.CREDENTIAL_MASTER_SECRET;
 
-  if (isNeonConfigured(env) && options.runSql) {
+  // Con base configurada NUNCA se degrada a memoria: si la base falla, el store
+  // lanza CredentialStoreError y la ruta responde indisponibilidad (503).
+  if (isNeonConfigured(env)) {
+    const runSql = options.runSql ?? ((text, params) => defaultSqlRunner(text, params));
     return new CredentialService({
       masterSecret,
-      store: new NeonCredentialStore(options.runSql),
+      store: new NeonCredentialStore(runSql),
       storage: 'durable',
     });
   }

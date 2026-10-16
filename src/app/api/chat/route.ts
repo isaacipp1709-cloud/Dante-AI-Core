@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DanteOrchestrator } from '../../../orchestrator';
-import { createConversation, saveMessage } from '../../../lib/database';
+import { createConversation, query as runSqlQuery, saveMessage } from '../../../lib/database';
 import { mapCredentialError, resolveByokContext } from '../../../lib/byok-context';
 import { defaultByokExecutor } from '../../../orchestrator/credentials/byok-executor';
 import { ProviderNotSupportedError } from '../../../orchestrator/credentials/credential-service';
@@ -84,6 +84,42 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(
           { error: { code: mapped.code, message: mapped.message } },
           { status: mapped.status },
+        );
+      }
+
+      // El toggle del panel de conexiones bloquea TAMBIEN la ejecucion BYOK.
+      try {
+        const { getProviderSettingsStore } = await import(
+          '../../../orchestrator/connections/provider-settings-store'
+        );
+        const settings = getProviderSettingsStore({
+          env: process.env,
+          runSql: (text: string, params?: unknown[]) =>
+            runSqlQuery(text, params as unknown[] | undefined),
+        });
+        const disabled = await settings.listDisabled();
+        const { providerRouter } = await import('../../../orchestrator/provider-router');
+        if (disabled.includes(credential.providerId) || !providerRouter.isProviderEnabled(credential.providerId)) {
+          return NextResponse.json(
+            {
+              error: {
+                code: 'PROVIDER_DISABLED',
+                message: 'El proveedor esta desactivado en el panel de conexiones.',
+              },
+            },
+            { status: 403 },
+          );
+        }
+      } catch {
+        // Sin poder verificar el estado no se ejecuta nada (no hay exito silencioso).
+        return NextResponse.json(
+          {
+            error: {
+              code: 'STORAGE_ERROR',
+              message: 'No fue posible verificar el estado del proveedor.',
+            },
+          },
+          { status: 503 },
         );
       }
 
