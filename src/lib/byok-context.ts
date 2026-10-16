@@ -65,6 +65,24 @@ export function resolveByokContext(request: Request, deps: ResolveByokDeps = {})
   };
 }
 
+/**
+ * Autorizacion administrativa para ajustes globales (activar/desactivar proveedores).
+ * Deny-by-default: sin lista configurada nadie puede cambiar ajustes del sistema.
+ * Los ids provienen de la asercion firmada, nunca del navegador.
+ */
+export function isAdminOwner(
+  ownerId: string,
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  const raw = env.DANTE_ADMIN_OWNER_IDS;
+  if (typeof raw !== 'string' || raw.trim().length === 0) return false;
+  return raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+    .includes(ownerId);
+}
+
 /** Traduce fallos del servicio a codigos estables sin filtrar detalles internos. */
 export function mapCredentialError(error: unknown): { status: number; code: string; message: string } {
   if (error instanceof CredentialNotFoundError) {

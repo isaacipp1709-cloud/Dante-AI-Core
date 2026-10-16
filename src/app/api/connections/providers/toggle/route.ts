@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { ProviderToggleRequestSchema } from '../../../../../contracts/connections';
 import { query } from '../../../../../lib/database';
 import { requireCoreToken } from '../../../../../lib/core-auth';
+import { isAdminOwner } from '../../../../../lib/byok-context';
+import { OWNER_ASSERTION_HEADER, verifyOwnerAssertion } from '../../../../../lib/owner-assertion';
 import {
   collectConnectionStatus,
   probeDatabase,
@@ -14,6 +16,24 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   const auth = requireCoreToken(request);
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
+
+  // Los ajustes globales exigen identidad firmada Y autorizacion administrativa.
+  const assertion = verifyOwnerAssertion({
+    assertion: request.headers.get(OWNER_ASSERTION_HEADER),
+    secret: process.env.DANTE_CORE_TOKEN,
+  });
+  if (!assertion.ok) {
+    return NextResponse.json(
+      { error: { code: assertion.code, message: assertion.message } },
+      { status: assertion.status },
+    );
+  }
+  if (!isAdminOwner(assertion.ownerId)) {
+    return NextResponse.json(
+      { error: { code: 'ADMIN_REQUIRED', message: 'Se requiere autorizacion administrativa.' } },
+      { status: 403 },
+    );
+  }
 
   let rawBody: unknown;
   try {
