@@ -35,17 +35,33 @@ export const defaultByokExecutor: ByokExecutor = async (input) => {
     ? input.history.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n') + `\n\nUSER: ${input.prompt}`
     : input.prompt;
 
-  const result = await model.generateContent(fullPrompt);
-  const usage = result.response.usageMetadata;
-  return {
-    content: result.response.text(),
-    model: modelName,
-    usage: usage
-      ? {
-          prompt_tokens: usage.promptTokenCount ?? 0,
-          completion_tokens: usage.candidatesTokenCount ?? 0,
-          total_tokens: usage.totalTokenCount ?? 0,
-        }
-      : undefined,
-  };
+  try {
+    const result = await model.generateContent(fullPrompt);
+    const usage = result.response.usageMetadata;
+    return {
+      content: result.response.text(),
+      model: modelName,
+      usage: usage
+        ? {
+            prompt_tokens: usage.promptTokenCount ?? 0,
+            completion_tokens: usage.candidatesTokenCount ?? 0,
+            total_tokens: usage.totalTokenCount ?? 0,
+          }
+        : undefined,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+    const status = typeof (error as { status?: unknown })?.status === 'number' ? (error as { status: number }).status : 0;
+    let code = 'PROVIDER_ERROR';
+    if (status === 429 || message.includes('quota') || message.includes('rate limit') || message.includes('resource_exhausted')) {
+      code = 'QUOTA_EXCEEDED';
+    } else if (status === 400 || status === 401 || status === 403 || message.includes('api key') || message.includes('api_key') || message.includes('permission') || message.includes('unauthorized') || message.includes('invalid argument')) {
+      code = 'AUTH_ERROR';
+    } else if (status === 408 || status === 504 || message.includes('timeout') || message.includes('timed out')) {
+      code = 'TIMEOUT';
+    }
+    const sanitised = new Error('El proveedor devolvio un error.');
+    (sanitised as unknown as { code: string }).code = code;
+    throw sanitised;
+  }
 };

@@ -91,4 +91,15 @@ describe('Turno BYOK dentro del recorrido de Dante', () => {
     expect(result.code).toBe('AUTH_ERROR');
     expect(JSON.stringify(result)).not.toContain(BASE.apiKey);
   });
+
+  it('clasifica cuota excedida del proveedor correctamente', async () => {
+    const failure = Object.assign(new Error('resource_exhausted: quota exceeded'), { code: 'QUOTA_EXCEEDED' });
+    const result = await runByokChatTurn({
+      ...BASE,
+      executor: async () => { throw failure; },
+    });
+
+    expect(result.status).toBe('provider_error');
+    expect(result.code).toBe('QUOTA_EXCEEDED');
+  });
 });
