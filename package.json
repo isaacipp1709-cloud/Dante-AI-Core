@@ -7,7 +7,9 @@
     "build": "tsc && next build",
     "dev": "next dev",
     "test": "jest",
-    "test:coverage": "jest --coverage"
+    "test:coverage": "jest --coverage",
+    "vault": "node tools/config-vault/cli.mjs serve",
+    "vault:test": "node --test tools/config-vault/tests/vault.test.mjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
