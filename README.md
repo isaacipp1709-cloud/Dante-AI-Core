@@ -4,6 +4,10 @@
 
 Enterprise Cognitive Organism modeled after John von Neumann architecture with 37 specialized neurons for Chilean corporate execution and financial forensics.
 
+> 📌 **Estado de Rescate y Continuidad (2026-10-18):**  
+> Para revisar el estado de infraestructura en la nube, las migraciones de Neon y el procedimiento de recuperación en tu laptop, consulta el documento [PROJECT_CONTINUITY.md](./PROJECT_CONTINUITY.md) y la bitácora [docs/work-log/2026-10-18-cierre-sesion-rescate-y-migracion-base.md](./docs/work-log/2026-10-18-cierre-sesion-rescate-y-migracion-base.md).  
+> Rama activa de rescate: `rescue/isaac-2026-10-18`.
+
 ---
 
 ## 🌳 Directorio y Estructura del Ecosistema
