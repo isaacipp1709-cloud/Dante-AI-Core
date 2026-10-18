@@ -1,9 +1,13 @@
+import { requireCoreToken } from '../../../lib/core-auth';
 import { NextResponse, NextRequest } from 'next/server';
 import { providerRouter } from '../../../orchestrator/provider-router';
 
 // In a real production setup, logs would be fetched from Neon or CloudWatch.
 // For now, we simulate recent logs, extracting rotation history as real logs.
 export async function GET(request: NextRequest) {
+  const auth = requireCoreToken(request);
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
+
   const rotations = providerRouter.getRotationHistory();
   
   const logs = [

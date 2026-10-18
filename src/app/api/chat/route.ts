@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { DanteOrchestrator } from '../../../orchestrator';
 import { createConversation, query as runSqlQuery, saveMessage } from '../../../lib/database';
 import { mapCredentialError, resolveByokContext } from '../../../lib/byok-context';
-import { defaultByokExecutor } from '../../../orchestrator/credentials/byok-executor';
+import { OWNER_ASSERTION_HEADER, verifyOwnerAssertion } from '../../../lib/owner-assertion';
+import { runByokChatTurn } from '../../../orchestrator/credentials/byok-turn';
 import { ProviderNotSupportedError } from '../../../orchestrator/credentials/credential-service';
 
 const ChatMessageSchema = z.object({
@@ -51,6 +52,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Identidad del usuario final: SOLO desde la asercion firmada por La Casa.
+    const ownerAssertion = verifyOwnerAssertion({
+      assertion: request.headers.get(OWNER_ASSERTION_HEADER),
+      secret: process.env.DANTE_CORE_TOKEN,
+    });
+    if (!ownerAssertion.ok) {
+      return NextResponse.json(
+        { error: { code: ownerAssertion.code, message: ownerAssertion.message } },
+        { status: ownerAssertion.status },
+      );
+    }
+    const verifiedOwnerId = ownerAssertion.ownerId;
+
+    // El chat interactivo exige una conexion de la boveda: sin credentialId
+    // no se usan claves de entorno ni respuestas mock.
+    if (!result.data.credentialId) {
+      return NextResponse.json(
+        {
+          error: {
+            code: 'CREDENTIAL_REQUIRED',
+            message: 'Selecciona una conexion guardada para conversar con Dante.',
+          },
+        },
+        { status: 400 },
+      );
+    }
+
     // Extract query for orchestrator
     const messages = result.data.messages;
     const lastUserMessage = messages.filter(m => m.role === 'user').pop();
@@ -60,11 +88,12 @@ export async function POST(request: NextRequest) {
     const generalContext = {
       timezone: request.headers.get('x-user-timezone') || 'UTC',
       locale: request.headers.get('x-user-locale') || 'es-CL',
-      userId: request.headers.get('x-user-id') || undefined,
+      userId: verifiedOwnerId,
     };
     
     const externalConversationId = request.headers.get('x-conversation-id') || `local-${Date.now()}`;
     const requestId = `req-${Date.now()}`;
+
 
     // --- BYOK: credencial del propietario autenticado ---
     if (result.data.credentialId) {
@@ -87,105 +116,148 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // El toggle del panel de conexiones bloquea TAMBIEN la ejecucion BYOK.
+      // Interruptor (fuente persistente + runtime) antes de cualquier llamada.
+      let disabledProviders: string[] = [];
+      let routerEnabled = true;
       try {
         const { getProviderSettingsStore } = await import(
           '../../../orchestrator/connections/provider-settings-store'
         );
         const settings = getProviderSettingsStore({
           env: process.env,
-          runSql: (text: string, params?: unknown[]) =>
-            runSqlQuery(text, params as unknown[] | undefined),
+          runSql: (text: string, params?: unknown[]) => runSqlQuery(text, params as unknown[] | undefined),
         });
-        const disabled = await settings.listDisabled();
+        disabledProviders = await settings.listDisabled();
         const { providerRouter } = await import('../../../orchestrator/provider-router');
-        if (disabled.includes(credential.providerId) || !providerRouter.isProviderEnabled(credential.providerId)) {
-          return NextResponse.json(
-            {
-              error: {
-                code: 'PROVIDER_DISABLED',
-                message: 'El proveedor esta desactivado en el panel de conexiones.',
-              },
-            },
-            { status: 403 },
-          );
-        }
+        routerEnabled = providerRouter.isProviderEnabled(credential.providerId);
       } catch {
-        // Sin poder verificar el estado no se ejecuta nada (no hay exito silencioso).
         return NextResponse.json(
-          {
-            error: {
-              code: 'STORAGE_ERROR',
-              message: 'No fue posible verificar el estado del proveedor.',
-            },
-          },
+          { error: { code: 'STORAGE_ERROR', message: 'No fue posible verificar el estado del proveedor.' } },
           { status: 503 },
         );
       }
 
-      const byokPrompt = messages.filter((m) => m.role === 'user').pop()?.content ?? '';
+      // Propiedad de la conversacion ANTES de tocar al proveedor.
+      if (process.env.USE_DATABASE === 'true') {
+        try {
+          const { assertConversationAccess, ConversationOwnershipError } = await import(
+            '../../../lib/conversations-repository'
+          );
+          await assertConversationAccess(
+            (text: string, params?: unknown[]) => runSqlQuery(text, params as unknown[] | undefined),
+            externalConversationId,
+            byokContext.context.ownerId,
+          );
+        } catch (error) {
+          const { ConversationOwnershipError } = await import('../../../lib/conversations-repository');
+          if (error instanceof ConversationOwnershipError) {
+            // Conversacion ajena o historica: se rechaza SIN consumir proveedor.
+            return NextResponse.json(
+              { error: { code: 'CONVERSATION_NOT_ACCESSIBLE', message: 'Esa conversacion no te pertenece.' } },
+              { status: 403 },
+            );
+          }
+          return NextResponse.json(
+            { error: { code: 'STORAGE_ERROR', message: 'No fue posible verificar la conversacion.' } },
+            { status: 503 },
+          );
+        }
+      }
 
-      try {
-        const execution = await defaultByokExecutor({
-          providerId: credential.providerId,
-          apiKey: credential.apiKey,
-          prompt: byokPrompt,
-          history: messages.slice(0, -1),
-          model: result.data.model,
-        });
+      // Dante (validacion, guardrails, contexto) + UNA ejecucion con la boveda.
+      const turn = await runByokChatTurn({
+        providerId: credential.providerId,
+        apiKey: credential.apiKey,
+        messages,
+        model: result.data.model,
+        financialContext: generalContext as unknown as Record<string, unknown>,
+        disabledProviders,
+        routerEnabled,
+      });
 
+      if (turn.status === 'blocked') {
+        return NextResponse.json(
+          { error: { code: 'PROVIDER_DISABLED', message: turn.content } },
+          { status: 403 },
+        );
+      }
+
+      if (turn.status === 'guardrail') {
+        // Dante intercepta la solicitud: no se llama al proveedor.
         return NextResponse.json(
           {
             id: requestId,
             object: 'chat.completion',
             created: Date.now(),
-            model: execution.model,
-            choices: [{
-              index: 0,
-              message: { role: 'assistant', content: execution.content },
-              finish_reason: 'stop',
-            }],
-            usage: execution.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
-            requestedProvider: credential.providerId,
-            credentialUsed: true,
+            model: 'core-system',
+            choices: [
+              { index: 0, message: { role: 'assistant', content: turn.content }, finish_reason: 'stop' },
+            ],
+            usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+            orchestration: turn.orchestration,
+            persistence: 'disabled',
             conversationId: externalConversationId,
           },
           { status: 200 },
         );
-      } catch (error) {
-        if (error instanceof ProviderNotSupportedError) {
-          return NextResponse.json(
-            { error: { code: 'PROVIDER_NOT_SUPPORTED', message: 'Proveedor no habilitado para BYOK.' } },
-            { status: 400 },
-          );
-        }
-        const providerCode = (error as { code?: string }).code;
-        if (providerCode === 'AUTH_ERROR') {
-          return NextResponse.json(
-            { error: { code: 'PROVIDER_UNAUTHORIZED', message: 'El proveedor rechazo la credencial guardada.' } },
-            { status: 401 },
-          );
-        }
-        if (providerCode === 'QUOTA_EXCEEDED') {
-          return NextResponse.json(
-            { error: { code: 'PROVIDER_RATE_LIMITED', message: 'Limite de uso alcanzado en el proveedor.' } },
-            { status: 429 },
-          );
-        }
-        if (providerCode === 'TIMEOUT') {
-          return NextResponse.json(
-            { error: { code: 'PROVIDER_TIMEOUT', message: 'El proveedor no respondio a tiempo.' } },
-            { status: 504 },
-          );
-        }
+      }
+
+      if (turn.status === 'provider_error') {
+        const status =
+          turn.code === 'AUTH_ERROR' ? 401
+          : turn.code === 'QUOTA_EXCEEDED' ? 429
+          : turn.code === 'TIMEOUT' ? 504
+          : 502;
+        const code =
+          turn.code === 'AUTH_ERROR' ? 'PROVIDER_UNAUTHORIZED'
+          : turn.code === 'QUOTA_EXCEEDED' ? 'PROVIDER_RATE_LIMITED'
+          : turn.code === 'TIMEOUT' ? 'PROVIDER_TIMEOUT'
+          : 'PROVIDER_ERROR';
+        return NextResponse.json({ error: { code, message: turn.content } }, { status });
+      }
+
+      if (turn.status !== 'ok') {
         return NextResponse.json(
-          { error: { code: 'PROVIDER_ERROR', message: 'El proveedor devolvio un error.' } },
+          { error: { code: 'PROVIDER_ERROR', message: turn.content } },
           { status: 502 },
         );
       }
+
+      const lastUserContent = messages.filter((m) => m.role === 'user').pop()?.content ?? '';
+
+      // Persistencia acotada al propietario verificado (nunca global).
+      let persistence: 'saved' | 'unavailable' | 'disabled' = 'disabled';
+      if (process.env.USE_DATABASE === 'true') {
+        try {
+          const { appendMessageForOwner } = await import('../../../lib/conversations-repository');
+          const run = (text: string, params?: unknown[]) => runSqlQuery(text, params as unknown[] | undefined);
+          await appendMessageForOwner(run, externalConversationId, byokContext.context.ownerId, 'user', lastUserContent, requestId);
+          await appendMessageForOwner(run, externalConversationId, byokContext.context.ownerId, 'assistant', turn.content, requestId);
+          persistence = 'saved';
+        } catch {
+          persistence = 'unavailable';
+        }
+      }
+
+      return NextResponse.json(
+        {
+          id: requestId,
+          object: 'chat.completion',
+          created: Date.now(),
+          model: turn.model,
+          choices: [
+            { index: 0, message: { role: 'assistant', content: turn.content }, finish_reason: 'stop' },
+          ],
+          usage: turn.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+          requestedProvider: credential.providerId,
+          credentialUsed: true,
+          orchestration: turn.orchestration,
+          persistence,
+          conversationId: externalConversationId,
+        },
+        { status: 200 },
+      );
     }
-
-
     const orchestrator = new DanteOrchestrator();
 
     const orchestratorResult = await orchestrator.process({

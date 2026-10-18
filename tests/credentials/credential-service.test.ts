@@ -84,7 +84,8 @@ describe('Cifrado de credenciales BYOK (Core)', () => {
     expect(payload.ciphertext).not.toContain(SECRET);
     expect(c.decrypt(payload)).toBe(SECRET);
 
-    const tampered = { ...payload, authTag: payload.authTag.replace(/.$/, 'f') };
+    const firstTagChar = payload.authTag[0];
+    const tampered = { ...payload, authTag: (firstTagChar === 'a' ? 'b' : 'a') + payload.authTag.slice(1) };
     expect(() => c.decrypt(tampered)).toThrow(CredentialIntegrityError);
     expect(() => new CredentialCrypto('otro-secreto-suficientemente-largo-000000').decrypt(payload)).toThrow(
       CredentialIntegrityError,

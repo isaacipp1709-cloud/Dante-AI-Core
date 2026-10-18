@@ -49,9 +49,8 @@ describe('Database Persistence', () => {
     expect(res[0].id).toBe('msg-1');
   });
 
-  it('3. Fallo de DB -> no bloquea respuesta (error loggeado)', async () => {
-    (createConversation as jest.Mock).mockRejectedValueOnce(new Error('DB Error'));
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  it('3. sin identidad verificada no se toca la base (rechazo previo)', async () => {
+    (createConversation as jest.Mock).mockClear();
 
     const request = new NextRequest('http://localhost:3001/api/chat', {
       method: 'POST',
@@ -59,16 +58,13 @@ describe('Database Persistence', () => {
         'authorization': 'Bearer test-token',
         'x-conversation-id': 'local-123'
       },
-      body: JSON.stringify({
-        messages: [{ role: 'user', content: 'test message' }]
-      })
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'test message' }] })
     });
 
     const response = await POST(request);
-    
-    expect(response.status).toBe(200);
-    expect(consoleSpy).toHaveBeenCalledWith('Persistencia falló:', expect.any(Error));
-    
-    consoleSpy.mockRestore();
+
+    // El contrato endurecido exige asercion firmada antes de cualquier lectura/escritura.
+    expect(response.status).toBe(401);
+    expect(createConversation).not.toHaveBeenCalled();
   });
 });

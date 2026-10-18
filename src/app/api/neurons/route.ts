@@ -1,6 +1,10 @@
-import { NextResponse } from 'next/server';
+import { requireCoreToken } from '../../../lib/core-auth';
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const auth = requireCoreToken(request);
+  if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
+
   const neurons = [
     { id: 'n-001', name: 'Orquestador Principal', status: 'activo', category: 'core', description: 'Enruta, evalúa y controla el flujo cognitivo.', lastExecution: new Date().toISOString() },
     { id: 'n-002', name: 'Memoria y Contexto', status: 'activo', category: 'memory', description: 'Maneja el estado persistente y ventana contextual.', lastExecution: new Date().toISOString() },
