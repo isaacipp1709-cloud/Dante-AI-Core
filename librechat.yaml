@@ -2,14 +2,14 @@ version: 1.1.5
 cache: true
 endpoints:
   google:
-    titleModel: "gemini-1.5-flash"
+    titleModel: "gemini-2.0-flash"
     models:
-      default: ["gemini-1.5-pro-latest", "gemini-1.5-flash-latest"]
+      default: ["gemini-2.0-flash", "gemini-2.5-flash"]
       fetch: false
     modelDisplayLabel: "Gemini (Google AI Studio)"
 presets:
   - endpoint: "google"
-    model: "gemini-1.5-pro-latest"
+    model: "gemini-2.0-flash"
     presetId: "dante-v4-superhumano"
     title: "DANTE · Superhumano Operativo (JARVIS)"
     description: "Copiloto corporativo y ejecutor universal bajo John von Neumann y Cerebro Infinity Black."

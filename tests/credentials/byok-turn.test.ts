@@ -21,7 +21,7 @@ describe('Turno BYOK dentro del recorrido de Dante', () => {
         calls += 1;
         receivedKey = input.apiKey;
         receivedPrompt = input.prompt;
-        return { content: 'respuesta sintetica', model: 'gemini-1.5-flash' };
+        return { content: 'respuesta sintetica', model: 'gemini-2.0-flash' };
       },
     });
 

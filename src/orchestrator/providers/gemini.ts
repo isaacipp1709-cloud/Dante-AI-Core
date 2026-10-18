@@ -21,7 +21,8 @@ export class GeminiProvider implements AIProvider {
     
     try {
       const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+      const modelName = process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash';
+      const model = genAI.getGenerativeModel({ model: modelName });
       
       const fullPrompt = history 
         ? history.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n') + `\n\nUSER: ${prompt}`
@@ -32,7 +33,7 @@ export class GeminiProvider implements AIProvider {
       
       return {
         content: text,
-        model: 'gemini-1.5-flash',
+        model: modelName,
         usage: result.response.usageMetadata ? {
           prompt_tokens: result.response.usageMetadata.promptTokenCount || 0,
           completion_tokens: result.response.usageMetadata.candidatesTokenCount || 0,

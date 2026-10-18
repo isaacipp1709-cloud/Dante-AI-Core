@@ -6,7 +6,7 @@ import { ProviderNotSupportedError } from './credential-service';
  * La clave vive solo durante la solicitud: no se registra ni se devuelve.
  */
 
-export const DEFAULT_BYOK_GEMINI_MODEL = 'gemini-1.5-flash';
+export const DEFAULT_BYOK_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash';
 
 export interface ByokExecutionInput {
   providerId: string;
