@@ -2,10 +2,16 @@ import { AIProvider, ProviderResponse, ProviderError } from './types';
 
 // Requiere: npm install @google/generative-ai
 import { GoogleGenerativeAI } from '@google/generative-ai';
+import {
+  DEFAULT_GEMINI_MODEL,
+  resolveGeminiModel,
+} from '../credentials/byok-executor';
+
+export { DEFAULT_GEMINI_MODEL };
 
 export class GeminiProvider implements AIProvider {
   id = 'gemini';
-  name = 'Gemini Pro';
+  name = 'Google Gemini';
   category = 'razonamiento' as const;
   
   isActive(): boolean {
@@ -18,10 +24,11 @@ export class GeminiProvider implements AIProvider {
        err.code = 'AUTH_ERROR';
        throw err;
     }
+
+    const modelName = resolveGeminiModel(process.env.DEFAULT_GEMINI_MODEL);
     
     try {
       const genAI = new GoogleGenerativeAI(process.env.GOOGLE_AI_API_KEY!);
-      const modelName = process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash';
       const model = genAI.getGenerativeModel({ model: modelName });
       
       const fullPrompt = history 

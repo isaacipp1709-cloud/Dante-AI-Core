@@ -6,7 +6,66 @@ import { ProviderNotSupportedError } from './credential-service';
  * La clave vive solo durante la solicitud: no se registra ni se devuelve.
  */
 
-export const DEFAULT_BYOK_GEMINI_MODEL = process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash';
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_BYOK_GEMINI_MODEL = DEFAULT_GEMINI_MODEL;
+
+/**
+ * Modelos Gemini API vigentes aprobados con nivel gratuito estándar documentado.
+ * Ordenados para que la selección inicial sea el default aprobado (gemini-3.8-flash).
+ */
+export const ALLOWED_GEMINI_MODELS = [
+  DEFAULT_GEMINI_MODEL,
+  'gemini-3.5-flash-lite',
+] as const;
+
+export type AllowedGeminiModel = (typeof ALLOWED_GEMINI_MODELS)[number];
+
+export class InvalidGeminiModelError extends Error {
+  readonly code = 'INVALID_MODEL';
+  readonly requestedModel: string;
+
+  constructor(requestedModel: string) {
+    super(
+      `El modelo Gemini '${requestedModel}' está obsoleto o no está permitido. Modelos permitidos: ${ALLOWED_GEMINI_MODELS.join(', ')}.`,
+    );
+    this.name = 'InvalidGeminiModelError';
+    this.requestedModel = requestedModel;
+  }
+}
+
+export function isAllowedGeminiModel(model: string): model is AllowedGeminiModel {
+  return (ALLOWED_GEMINI_MODELS as readonly string[]).includes(model);
+}
+
+/**
+ * Resuelve y valida el modelo Gemini efectivo.
+ * - Si se proporciona un override explícito, debe pertenecer a ALLOWED_GEMINI_MODELS.
+ * - Si no se proporciona override explícito, usa process.env.DEFAULT_GEMINI_MODEL (validado)
+ *   o DEFAULT_BYOK_GEMINI_MODEL ('gemini-3.8-flash').
+ * - Nunca acepta silenciosamente un modelo obsoleto (p. ej. gemini-2.0-flash) ni degrada en silencio.
+ */
+export function resolveGeminiModel(requestedModel?: string | null): AllowedGeminiModel {
+  const explicit = typeof requestedModel === 'string' ? requestedModel.trim() : '';
+  if (explicit.length > 0) {
+    if (!isAllowedGeminiModel(explicit)) {
+      throw new InvalidGeminiModelError(explicit);
+    }
+    return explicit;
+  }
+
+  const envDefault =
+    typeof process.env.DEFAULT_GEMINI_MODEL === 'string'
+      ? process.env.DEFAULT_GEMINI_MODEL.trim()
+      : '';
+  if (envDefault.length > 0) {
+    if (!isAllowedGeminiModel(envDefault)) {
+      throw new InvalidGeminiModelError(envDefault);
+    }
+    return envDefault;
+  }
+
+  return DEFAULT_BYOK_GEMINI_MODEL;
+}
 
 export interface ByokExecutionInput {
   providerId: string;
@@ -27,8 +86,8 @@ export type ByokExecutor = (input: ByokExecutionInput) => Promise<ByokExecutionR
 export const defaultByokExecutor: ByokExecutor = async (input) => {
   if (input.providerId !== 'gemini') throw new ProviderNotSupportedError();
 
+  const modelName = resolveGeminiModel(input.model);
   const genAI = new GoogleGenerativeAI(input.apiKey);
-  const modelName = input.model && input.model.trim().length > 0 ? input.model.trim() : DEFAULT_BYOK_GEMINI_MODEL;
   const model = genAI.getGenerativeModel({ model: modelName });
 
   const fullPrompt = input.history && input.history.length > 0

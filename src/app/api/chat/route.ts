@@ -204,12 +204,14 @@ export async function POST(request: NextRequest) {
 
       if (turn.status === 'provider_error') {
         const status =
-          turn.code === 'AUTH_ERROR' ? 401
+          turn.code === 'INVALID_MODEL' ? 400
+          : turn.code === 'AUTH_ERROR' ? 401
           : turn.code === 'QUOTA_EXCEEDED' ? 429
           : turn.code === 'TIMEOUT' ? 504
           : 502;
         const code =
-          turn.code === 'AUTH_ERROR' ? 'PROVIDER_UNAUTHORIZED'
+          turn.code === 'INVALID_MODEL' ? 'INVALID_MODEL'
+          : turn.code === 'AUTH_ERROR' ? 'PROVIDER_UNAUTHORIZED'
           : turn.code === 'QUOTA_EXCEEDED' ? 'PROVIDER_RATE_LIMITED'
           : turn.code === 'TIMEOUT' ? 'PROVIDER_TIMEOUT'
           : 'PROVIDER_ERROR';

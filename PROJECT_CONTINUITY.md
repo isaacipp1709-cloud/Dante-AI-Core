@@ -1,7 +1,7 @@
 # Dante AI Core — Continuidad del Proyecto y Estado de Rescate
 
-**Última Actualización:** 2026-10-18 (Cierre de Sesión y Traslado al Laptop de Isaac)  
-**Rama Activa de Rescate:** `rescue/isaac-2026-10-18`  
+**Última Actualización:** 2026-10-20 (Paso 2: Alineación de Modelo Gemini Vigente `gemini-3.8-flash` y Validación Estricta)
+**Rama Activa de Rescate:** `rescue/isaac-2026-10-18`
 **Repositorio Privado de Configuración:** `https://isaacipp1709-cloud@github.com/isaacipp1709-cloud/Dante-Private-Config.git`
 
 ---
@@ -63,7 +63,7 @@ Dante AI opera bajo una arquitectura desacoplada orientada a la **nube (Cloud-Fi
    - El inicio de sesión real vía Supabase Auth (GitHub) debe ser completado por Isaac en el navegador.
    - El UUID de usuario resultante de Supabase debe registrarse en `DANTE_AUTHORIZED_OWNER_IDS`.
    - La persistencia integral E2E (turnos de chat almacenándose durablemente en Neon) se validará una vez aplicadas las migraciones y desplegados los servicios en Vercel.
-4. **Modelo Gemini Pendiente de Actualizar/Verificar:** El modelo configurado en LibreChat y adaptadores requiere verificación de cuotas e inferencia real en la nube sin costo.
+4. **Modelo Gemini Vigente Alineado en Código (`gemini-3.8-flash`):** Se reemplazó el modelo retirado `gemini-2.0-flash` (dado de baja el 1 de junio de 2026) por **`gemini-3.8-flash`** como default unificado (`DEFAULT_GEMINI_MODEL` / `DEFAULT_BYOK_GEMINI_MODEL`), con **`gemini-3.5-flash-lite`** como segunda opción permitida (`ALLOWED_GEMINI_MODELS = ['gemini-3.8-flash', 'gemini-3.5-flash-lite']`), ambos GA estables con nivel gratuito estándar documentado en Google Gemini API. Se rechazan explícitamente overrides obsoletos o restringidos (`gemini-2.0-*`, `gemini-2.5-*`, `gemini-1.5-*`, `gemini-pro`) con `INVALID_MODEL` (HTTP 400) sin invocar al proveedor. Queda pendiente únicamente la comprobación de disponibilidad e inferencia real con la clave del proyecto de Isaac.
 5. **OpenRouter y NVIDIA NIM:** Su presencia en los selectores de la interfaz de usuario, contratos Zod y catálogo estático refleja la arquitectura multimodelo planificada, pero **NO equivalen a adaptadores cliente implementados en La Casa** (únicamente Gemini tiene adaptador activo en esta fase).
 
 ---

@@ -1,6 +1,6 @@
 import { DanteOrchestrator, type OrchestratorOutput } from '../../orchestrator';
 import { isProviderExecutionBlocked } from '../connections/provider-availability';
-import { defaultByokExecutor, type ByokExecutor } from './byok-executor';
+import { defaultByokExecutor, resolveGeminiModel, type ByokExecutor } from './byok-executor';
 
 /**
  * Turno de chat con credencial de la boveda, dentro del recorrido de Dante.
@@ -99,6 +99,22 @@ export async function runByokChatTurn(input: ByokTurnInput): Promise<ByokTurnRes
   }
 
   // 3. UNA sola ejecucion, con la clave de la boveda.
+  let resolvedModel = input.model;
+  if (input.providerId === 'gemini') {
+    try {
+      resolvedModel = resolveGeminiModel(input.model);
+    } catch (error) {
+      const code = (error as { code?: string }).code ?? 'INVALID_MODEL';
+      return {
+        status: 'provider_error',
+        code,
+        content: 'El modelo solicitado está obsoleto o no está permitido.',
+        executionInvocations: 0,
+        orchestration: { status: orchestration.status, action: orchestration.action },
+      };
+    }
+  }
+
   const financialResults = (orchestration.payload?.financialResults ?? {}) as Record<string, unknown>;
   const hasFinancial = Object.keys(financialResults).length > 0;
   const query = lastUserContent(input.messages);
@@ -119,7 +135,7 @@ export async function runByokChatTurn(input: ByokTurnInput): Promise<ByokTurnRes
       apiKey: input.apiKey,
       prompt,
       history: input.messages.slice(0, -1),
-      model: input.model,
+      model: resolvedModel,
     });
     return {
       status: 'ok',
