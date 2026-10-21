@@ -23,7 +23,7 @@ import {
  */
 
 /** Proveedores con adaptador BYOK real en el Core. */
-export const BYOK_PROVIDERS: readonly string[] = ['gemini'];
+export const BYOK_PROVIDERS: readonly string[] = ['gemini', 'nvidia', 'groq', 'openrouter', 'huggingface'];
 
 export function isByokProvider(value: unknown): boolean {
   return typeof value === 'string' && BYOK_PROVIDERS.includes(value);

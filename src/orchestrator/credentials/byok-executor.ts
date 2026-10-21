@@ -67,6 +67,35 @@ export function resolveGeminiModel(requestedModel?: string | null): AllowedGemin
   return DEFAULT_BYOK_GEMINI_MODEL;
 }
 
+export interface OpenAiCompatibleConfig {
+  endpoint: string;
+  defaultModel: string;
+  extraHeaders?: Record<string, string>;
+}
+
+export const OPENAI_COMPATIBLE_PROVIDERS: Record<string, OpenAiCompatibleConfig> = {
+  nvidia: {
+    endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
+    defaultModel: 'meta/llama-3.1-70b-instruct',
+  },
+  groq: {
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    defaultModel: 'llama-3.3-70b-versatile',
+  },
+  openrouter: {
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    extraHeaders: {
+      'HTTP-Referer': 'https://la-casa-de-dante.vercel.app',
+      'X-Title': 'La Casa de Dante',
+    },
+  },
+  huggingface: {
+    endpoint: 'https://router.huggingface.co/hf-inference/v1/chat/completions',
+    defaultModel: 'meta-llama/Meta-Llama-3-8B-Instruct',
+  },
+};
+
 export interface ByokExecutionInput {
   providerId: string;
   apiKey: string;
@@ -84,7 +113,76 @@ export interface ByokExecutionResult {
 export type ByokExecutor = (input: ByokExecutionInput) => Promise<ByokExecutionResult>;
 
 export const defaultByokExecutor: ByokExecutor = async (input) => {
-  if (input.providerId !== 'gemini') throw new ProviderNotSupportedError();
+  // Proveedores compatibles con OpenAI chat completions wire protocol
+  const openAiConfig = OPENAI_COMPATIBLE_PROVIDERS[input.providerId];
+  if (openAiConfig) {
+    const modelName = input.model && input.model.trim().length > 0 ? input.model.trim() : openAiConfig.defaultModel;
+    const messages = [
+      ...(input.history || []).map((m) => ({
+        role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
+        content: m.content,
+      })),
+      { role: 'user', content: input.prompt },
+    ];
+
+    try {
+      const res = await fetch(openAiConfig.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${input.apiKey}`,
+          ...(openAiConfig.extraHeaders || {}),
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!res.ok) {
+        let code = 'PROVIDER_ERROR';
+        if (res.status === 429) {
+          code = 'QUOTA_EXCEEDED';
+        } else if (res.status === 401 || res.status === 403) {
+          code = 'AUTH_ERROR';
+        } else if (res.status === 408 || res.status === 504) {
+          code = 'TIMEOUT';
+        }
+        const err = new Error('El proveedor devolvio un error.');
+        (err as unknown as { code: string }).code = code;
+        throw err;
+      }
+
+      const data = (await res.json()) as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+
+      const content = data.choices?.[0]?.message?.content ?? '';
+      return {
+        content,
+        model: modelName,
+        usage: data.usage
+          ? {
+              prompt_tokens: data.usage.prompt_tokens ?? 0,
+              completion_tokens: data.usage.completion_tokens ?? 0,
+              total_tokens: data.usage.total_tokens ?? 0,
+            }
+          : undefined,
+      };
+    } catch (error) {
+      if ((error as { code?: string }).code) throw error;
+      const err = new Error('El proveedor devolvio un error.');
+      (err as unknown as { code: string }).code = 'PROVIDER_ERROR';
+      throw err;
+    }
+  }
+
+  // Google Gemini nativo
+  if (input.providerId !== 'gemini') {
+    throw new ProviderNotSupportedError();
+  }
 
   const modelName = resolveGeminiModel(input.model);
   const genAI = new GoogleGenerativeAI(input.apiKey);

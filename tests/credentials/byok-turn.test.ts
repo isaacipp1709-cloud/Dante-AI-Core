@@ -237,4 +237,35 @@ describe('Turno BYOK dentro del recorrido de Dante', () => {
       }
     }
   });
+
+  it('soporta multi-proveedores BYOK (nvidia, groq, openrouter, huggingface) entregando la clave solo al ejecutor', async () => {
+    for (const provider of ['nvidia', 'groq', 'openrouter', 'huggingface'] as const) {
+      let executorCalled = false;
+      let usedProvider = '';
+      let usedKey = '';
+
+      const turn = await runByokChatTurn({
+        providerId: provider,
+        apiKey: `test-${provider}-key`,
+        messages: [{ role: 'user', content: 'analiza arquitectura' }],
+        financialContext: { timezone: 'UTC', locale: 'es-CL', userId: 'user-a' },
+        disabledProviders: [],
+        routerEnabled: true,
+        executor: async (input) => {
+          executorCalled = true;
+          usedProvider = input.providerId;
+          usedKey = input.apiKey;
+          return { content: `Respuesta de ${provider}`, model: `model-${provider}` };
+        },
+      });
+
+      expect(turn.status).toBe('ok');
+      expect(executorCalled).toBe(true);
+      expect(usedProvider).toBe(provider);
+      expect(usedKey).toBe(`test-${provider}-key`);
+      if (turn.status === 'ok') {
+        expect(turn.content).toBe(`Respuesta de ${provider}`);
+      }
+    }
+  });
 });

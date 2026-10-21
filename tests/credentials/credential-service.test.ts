@@ -158,9 +158,21 @@ describe('Almacenamiento durable y aislamiento por propietario', () => {
 
   it('rechaza proveedores sin adaptador BYOK', async () => {
     const svc = service();
-    await expect(svc.save({ ownerId: 'user-a', providerId: 'groq', apiKey: 'sk-groq' })).rejects.toThrow(
+    await expect(svc.save({ ownerId: 'user-a', providerId: 'unsupported-provider', apiKey: 'sk-test' })).rejects.toThrow(
       ProviderNotSupportedError,
     );
+    await expect(svc.save({ ownerId: 'user-a', providerId: 'ollama', apiKey: 'sk-ollama' })).rejects.toThrow(
+      ProviderNotSupportedError,
+    );
+  });
+
+  it('acepta proveedores soportados BYOK (gemini, nvidia, groq, openrouter, huggingface)', async () => {
+    const svc = service();
+    for (const provider of ['gemini', 'nvidia', 'groq', 'openrouter', 'huggingface']) {
+      const saved = await svc.save({ ownerId: 'user-a', providerId: provider, apiKey: 'sk-' + provider });
+      expect(saved.providerId).toBe(provider);
+      expect(saved.status).toBe('active');
+    }
   });
 
   it('8. el fallback temporal funciona sin Neon', async () => {
