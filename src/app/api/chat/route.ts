@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DanteOrchestrator } from '../../../orchestrator';
-import { createConversation, query as runSqlQuery, saveMessage } from '../../../lib/database';
+import { createConversation, query as runSqlQuery, sanitizeDatabaseError, saveMessage } from '../../../lib/database';
 import { mapCredentialError, resolveByokContext } from '../../../lib/byok-context';
 import { OWNER_ASSERTION_HEADER, verifyOwnerAssertion } from '../../../lib/owner-assertion';
 import { runByokChatTurn } from '../../../orchestrator/credentials/byok-turn';
@@ -321,15 +321,18 @@ export async function POST(request: NextRequest) {
         await saveMessage(internalId, 'assistant', coreResponse.choices[0].message.content, requestId);
       } catch (error) {
         // Loggear error, no bloquear respuesta
-        console.error('Persistencia falló:', error);
+        console.error('Persistencia falló:', sanitizeDatabaseError(error));
       }
     }
 
     return NextResponse.json(coreResponse, { status: 200 });
   } catch (error) {
-    console.error('Chat error:', error);
+    console.error('Chat error:', sanitizeDatabaseError(error));
     return NextResponse.json(
-      { error: 'INTERNAL_ERROR', message: error instanceof Error ? error.message : 'Unknown error' },
+      {
+        error: 'INTERNAL_ERROR',
+        message: 'An internal error occurred while processing the chat request',
+      },
       { status: 500 }
     );
   }
