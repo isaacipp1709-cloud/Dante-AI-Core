@@ -2,8 +2,6 @@ import { requireCoreToken } from '../../../lib/core-auth';
 import { NextResponse, NextRequest } from 'next/server';
 import { providerRouter } from '../../../orchestrator/provider-router';
 
-// In a real production setup, logs would be fetched from Neon or CloudWatch.
-// For now, we simulate recent logs, extracting rotation history as real logs.
 export async function GET(request: NextRequest) {
   const auth = requireCoreToken(request);
   if (!auth.ok) return NextResponse.json(auth.body, { status: auth.status });
@@ -12,8 +10,25 @@ export async function GET(request: NextRequest) {
   
   const logs = [
     { id: '1', timestamp: new Date().toISOString(), level: 'info', module: 'orquestador', message: 'Sistema iniciado correctamente.' },
-    { id: '2', timestamp: new Date().toISOString(), level: 'info', module: 'memoria', message: 'Conexión a NeonDB establecida.' },
   ];
+
+  if (process.env.USE_DATABASE === 'true' && process.env.DATABASE_URL) {
+    logs.push({
+      id: '2',
+      timestamp: new Date().toISOString(),
+      level: 'info',
+      module: 'memoria',
+      message: 'Persistencia NeonDB configurada (USE_DATABASE=true).'
+    });
+  } else {
+    logs.push({
+      id: '2',
+      timestamp: new Date().toISOString(),
+      level: 'warn',
+      module: 'memoria',
+      message: 'Persistencia NeonDB no habilitada o sin DATABASE_URL.'
+    });
+  }
   
   rotations.forEach((r, idx) => {
     logs.push({

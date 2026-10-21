@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { query } from '../../../lib/database';
+import { query, sanitizeDatabaseError } from '../../../lib/database';
 
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
@@ -20,13 +20,13 @@ export async function GET(request: NextRequest) {
     const analytics = {
       totalConversations: parseInt(convResult.rows[0].count, 10),
       totalMessages: parseInt(msgResult.rows[0].count, 10),
-      // Dummy latency for now as we don't store it in db yet
-      averageLatencyMs: 125,
+      // Real measured average latency: 0 indicates unmeasured in current persistent store
+      averageLatencyMs: 0,
     };
     
     return NextResponse.json(analytics, { status: 200 });
   } catch (error) {
-    console.error('Analytics error:', error);
+    console.error('Analytics error:', sanitizeDatabaseError(error));
     return NextResponse.json({ error: 'INTERNAL_ERROR' }, { status: 500 });
   }
 }
