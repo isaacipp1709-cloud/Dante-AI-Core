@@ -20,7 +20,7 @@ export class ProviderRouter {
   private adminDisabledProviders: Set<string> = new Set(); // Toggle del panel de conexiones
   
   // Rule: Priority order
-  private priorityOrder = ['gemini', 'huggingface', 'ollama'];
+  private priorityOrder = ['gemini', 'deepseek', 'nvidia', 'openrouter', 'huggingface', 'groq', 'ollama'];
 
   constructor() {
     this.registerProvider(new GeminiProvider());

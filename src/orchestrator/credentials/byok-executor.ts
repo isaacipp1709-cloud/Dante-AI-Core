@@ -74,6 +74,10 @@ export interface OpenAiCompatibleConfig {
 }
 
 export const OPENAI_COMPATIBLE_PROVIDERS: Record<string, OpenAiCompatibleConfig> = {
+  deepseek: {
+    endpoint: 'https://api.deepseek.com/chat/completions',
+    defaultModel: 'deepseek-chat',
+  },
   nvidia: {
     endpoint: 'https://integrate.api.nvidia.com/v1/chat/completions',
     defaultModel: 'meta/llama-3.1-70b-instruct',
