@@ -6,12 +6,14 @@
  * explicita las operaciones afectadas hasta corregir, conservando datos,
  * columnas, guardas y aislamiento.
  *
- * DANTE_CONVERSATIONS_ENABLED: 'true' habilita; ausente o distinto => suspendido.
+ * DANTE_CONVERSATIONS_ENABLED: 'true' habilita; 'false' suspende;
+ * Si USE_DATABASE === 'true' y no está suspendido explícitamente, se habilita por defecto.
  */
 export const CONVERSATIONS_ENABLED_ENV = 'DANTE_CONVERSATIONS_ENABLED';
 
 export function isConversationsEnabled(env: Record<string, string | undefined> = process.env): boolean {
-  return env[CONVERSATIONS_ENABLED_ENV] === 'true';
+  if (env[CONVERSATIONS_ENABLED_ENV] === 'false') return false;
+  return env[CONVERSATIONS_ENABLED_ENV] === 'true' || env.USE_DATABASE === 'true';
 }
 
 export function conversationsSuspendedBody(): { error: { code: string; message: string } } {
