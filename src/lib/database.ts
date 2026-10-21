@@ -2,10 +2,42 @@
 
 import { Pool } from 'pg';
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+export function getDatabaseSslConfig(
+  env: NodeJS.ProcessEnv = process.env
+): boolean | { rejectUnauthorized: boolean } {
+  if (env.NODE_ENV === 'production') {
+    return { rejectUnauthorized: true };
+  }
+  if (env.DATABASE_URL && env.DATABASE_URL.includes('sslmode=require')) {
+    return { rejectUnauthorized: true };
+  }
+  return false;
+}
+
+export function getDatabasePoolConfig(env: NodeJS.ProcessEnv = process.env) {
+  return {
+    connectionString: env.DATABASE_URL,
+    ssl: getDatabaseSslConfig(env),
+  };
+}
+
+export function sanitizeDatabaseError(error: unknown): string {
+  if (!error) return 'Unknown database error';
+  const raw = error instanceof Error ? error.message : String(error);
+  // Redact credentials from postgres/http URLs: postgres://user:password@host/db -> postgres://***:***@host/db
+  let sanitized = raw.replace(/:\/\/[^:]+:([^@]+)@/g, '://***:***@');
+  // Redact potential password/token/key parameter assignments
+  sanitized = sanitized.replace(/(password|token|secret|key)\s*[:=]\s*['"]?[^'"\s]+['"]?/gi, '$1=***');
+  if (process.env.DATABASE_URL) {
+    const urlMatch = process.env.DATABASE_URL.match(/:\/\/([^:]+):([^@]+)@/);
+    if (urlMatch && urlMatch[2] && urlMatch[2].length > 2) {
+      sanitized = sanitized.split(urlMatch[2]).join('***');
+    }
+  }
+  return sanitized;
+}
+
+const pool = new Pool(getDatabasePoolConfig());
 
 export async function query(text: string, params?: any[]) {
   try {
@@ -16,7 +48,7 @@ export async function query(text: string, params?: any[]) {
       client.release();
     }
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('Database query error:', sanitizeDatabaseError(error));
     throw error;
   }
 }
@@ -58,7 +90,7 @@ export async function createConversation(externalId: string) {
     );
     return result.rows;
   } catch (error) {
-    console.error('Error creating conversation:', error);
+    console.error('Error creating conversation:', sanitizeDatabaseError(error));
     throw error;
   }
 }
@@ -75,7 +107,7 @@ export async function saveMessage(conversationId: string, role: string, content:
     );
     return result.rows;
   } catch (error) {
-    console.error('Error saving message:', error);
+    console.error('Error saving message:', sanitizeDatabaseError(error));
     throw error;
   }
 }
@@ -88,7 +120,7 @@ export async function getConversationMessages(conversationId: string) {
     );
     return result.rows;
   } catch (error) {
-    console.error('Error getting messages:', error);
+    console.error('Error getting messages:', sanitizeDatabaseError(error));
     throw error;
   }
 }

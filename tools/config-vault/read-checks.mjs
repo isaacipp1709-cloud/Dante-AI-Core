@@ -63,7 +63,7 @@ async function getPgClient(connectionString) {
   const Client = pg.default?.Client || pg.Client;
   return new Client({
     connectionString,
-    ssl: { rejectUnauthorized: false },
+    ssl: { rejectUnauthorized: true },
     connectionTimeoutMillis: 5000,
   });
 }
