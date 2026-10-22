@@ -1,6 +1,7 @@
 import { DanteOrchestrator, type OrchestratorOutput } from '../../orchestrator';
 import { isProviderExecutionBlocked } from '../connections/provider-availability';
 import { defaultByokExecutor, resolveGeminiModel, type ByokExecutor } from './byok-executor';
+import { resolveArchetype } from '../archetypes/archetype-catalog';
 
 /**
  * Turno de chat con credencial de la boveda, dentro del recorrido de Dante.
@@ -8,7 +9,8 @@ import { defaultByokExecutor, resolveGeminiModel, type ByokExecutor } from './by
  * Orden estricto por solicitud:
  *  1. interruptor (bloquea antes de cualquier llamada al proveedor)
  *  2. DanteOrchestrator: validacion, guardrails y contexto financiero
- *  3. UNA sola ejecucion del proveedor con la clave resuelta
+ *  3. Inyección contextual de arquetipo cognitivo (Dante, Devin, v0, Manus)
+ *  4. UNA sola ejecucion del proveedor con la clave resuelta
  *
  * Nunca cae a claves de entorno, mocks ni otro proveedor. La clave solo se
  * entrega al ejecutor: no entra en el prompt, el historial ni la respuesta.
@@ -21,6 +23,7 @@ export interface ByokTurnInput {
   apiKey: string;
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>;
   model?: string;
+  archetypeId?: string;
   financialContext: Record<string, unknown>;
   /** Proveedores desactivados en el panel (fuente persistente). */
   disabledProviders: readonly string[];
@@ -36,6 +39,7 @@ export interface ByokTurnSuccess {
   content: string;
   model: string;
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  archetypeUsed?: string;
   orchestration: { status: string; action: string };
   /** true solo si el contexto financiero aporto calculos al prompt. */
   enrichedWithFinancialContext: boolean;
@@ -118,9 +122,15 @@ export async function runByokChatTurn(input: ByokTurnInput): Promise<ByokTurnRes
   const financialResults = (orchestration.payload?.financialResults ?? {}) as Record<string, unknown>;
   const hasFinancial = Object.keys(financialResults).length > 0;
   const query = lastUserContent(input.messages);
-  const prompt = hasFinancial
-    ? `${query}\n\n[System Context: Financial calculations: ${JSON.stringify(financialResults)}]`
-    : query;
+
+  // Modular el prompt según el arquetipo cognitivo seleccionado
+  const archetype = resolveArchetype(input.archetypeId);
+  const archetypeHeader = archetype.id !== 'dante' ? `${archetype.systemDirective}\n\n` : '';
+  const prompt = `${archetypeHeader}${
+    hasFinancial
+      ? `${query}\n\n[System Context: Financial calculations: ${JSON.stringify(financialResults)}]`
+      : query
+  }`;
 
   let invocations = 0;
   const executor = input.executor ?? defaultByokExecutor;
@@ -142,6 +152,7 @@ export async function runByokChatTurn(input: ByokTurnInput): Promise<ByokTurnRes
       content: execution.content,
       model: execution.model,
       usage: execution.usage,
+      archetypeUsed: archetype.id,
       orchestration: { status: orchestration.status, action: orchestration.action },
       enrichedWithFinancialContext: hasFinancial,
     };

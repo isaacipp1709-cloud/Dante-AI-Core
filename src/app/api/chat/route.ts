@@ -18,6 +18,7 @@ const ChatRequestSchema = z.object({
   credentialId: z.string().min(1).max(128).optional(),
   providerId: z.string().min(1).max(64).optional(),
   model: z.string().min(1).max(120).optional(),
+  archetypeId: z.string().min(1).max(64).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -178,12 +179,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Dante (validacion, guardrails, contexto) + UNA ejecucion con la boveda.
+    const headerArchetype = request.headers.get('x-dante-archetype') || undefined;
+    const effectiveArchetype = result.data.archetypeId || headerArchetype || 'dante';
+
+    // Dante (validacion, guardrails, contexto, arquetipo) + UNA ejecucion con la boveda.
     const turn = await runByokChatTurn({
       providerId: credential.providerId,
       apiKey: credential.apiKey,
       messages,
       model: result.data.model,
+      archetypeId: effectiveArchetype,
       financialContext: generalContext as unknown as Record<string, unknown>,
       disabledProviders,
       routerEnabled,
@@ -261,6 +266,7 @@ export async function POST(request: NextRequest) {
         object: 'chat.completion',
         created: Date.now(),
         model: turn.model,
+        archetype: (turn as { archetypeUsed?: string }).archetypeUsed || effectiveArchetype,
         choices: [
           { index: 0, message: { role: 'assistant', content: turn.content }, finish_reason: 'stop' },
         ],
